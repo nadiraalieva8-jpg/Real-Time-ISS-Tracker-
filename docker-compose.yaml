@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:14.0
+    container_name: de-postgres-backend
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    ports:
+      - "5432:5432"
+
+  # 1. Служебный контейнер (создает базу данных и пользователя admin / admin)
+  airflow-init:
+    image: apache/airflow:2.7.1-python3.10
+    container_name: de-airflow-init
+    depends_on:
+      - postgres
+    command: >
+      bash -c "airflow db init && 
+      airflow users create --username admin --password admin --firstname Peter --lastname Parker --role Admin --email admin@example.com"
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+
+  # 2. Веб-сервер (красивый сайт Airflow)
+  webserver:
+    image: apache/airflow:2.7.1-python3.10
+    container_name: de-airflow-engine
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: webserver
+    environment:
+      - LOAD_EXAMPLES=n
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__AUTH__EXPOSE_CONFIG=True
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ./dags:/opt/airflow/dags
+    ports:
+      - "8080:8080"
+
+  # 3. ПЛАНИРОВЩИК (Мозг Airflow, который будет запускать наш скрипт спутника)
+  scheduler:
+    image: apache/airflow:2.7.1-python3.10
+    container_name: de-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: scheduler
+    environment:
+      - LOAD_EXAMPLES=n
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ./dags:/opt/airflow/dags
